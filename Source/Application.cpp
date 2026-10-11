@@ -18,6 +18,8 @@
 
 #include "Application.h"
 
+#include <optional>
+
 #include <QGuiApplication>
 #include <QMessageBox>
 #include <QStyleFactory>
@@ -274,6 +276,18 @@ void ApdApplication::ConnectAirPodsManager()
     connect(
         manager, &Core::AirPods::Manager::DeviceConnectionChanged, _lowAudioLatencyController.get(),
         &Core::LowAudioLatency::Controller::SetDeviceConnectedSafely);
+    // Emitted from a worker thread; the `mainWindow` context queues the lambda onto the GUI thread.
+    // The first report is the state at startup, so only a later disconnected -> connected
+    // transition counts as "connecting".
+    connect(
+        manager, &Core::AirPods::Manager::DeviceConnectionChanged, mainWindow,
+        [mainWindow, previous = std::optional<bool>{}](bool connected) mutable {
+            const bool justConnected = connected && previous.has_value() && !*previous;
+            previous = connected;
+            if (justConnected && Core::Settings::GetCurrent().show_on_connect) {
+                mainWindow->Show();
+            }
+        });
     connect(manager, &Core::AirPods::Manager::LidToggled, mainWindow, [mainWindow](bool opened) {
         if (opened) {
             emit mainWindow->ShowSafely();

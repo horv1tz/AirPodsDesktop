@@ -103,6 +103,7 @@ SettingsWindow::SettingsWindow(
     for (const auto &[label, checkBox] : {
              std::pair{_ui.lbLowAudioLatency, _ui.cbLowAudioLatency},
              std::pair{_ui.lbAutoEarDetection, _ui.cbAutoEarDetection},
+             std::pair{_ui.lbShowOnConnect, _ui.cbShowOnConnect},
              std::pair{_ui.lbTrayQuickConnect, _ui.cbTrayQuickConnectEnabled},
          })
     {
@@ -229,6 +230,12 @@ SettingsWindow::SettingsWindow(
         }
     });
 
+    connect(_ui.cbShowOnConnect, &QCheckBox::toggled, this, [this](bool checked) {
+        if (_trigger) {
+            On_cbShowOnConnect_toggled(checked);
+        }
+    });
+
     connect(_ui.hsMaxReceivingRange, &QSlider::valueChanged, this, [this](int value) {
         if (_trigger) {
             On_hsMaxReceivingRange_valueChanged(value);
@@ -325,6 +332,7 @@ void SettingsWindow::UpdateDescriptions()
 
     _ui.lbDescLowAudioLatency->setText(constMetaFields.low_audio_latency.Description());
     _ui.lbDescAutoEarDetection->setText(constMetaFields.automatic_ear_detection.Description());
+    _ui.lbDescShowOnConnect->setText(constMetaFields.show_on_connect.Description());
     _ui.lbDescTrayQuickConnect->setText(constMetaFields.tray_quick_connect_enabled.Description());
 
     // The About text carries a hard-coded link colour inside the (translated) HTML; swap it
@@ -411,6 +419,8 @@ void SettingsWindow::Update(const Fields &fields, bool trigger)
     _ui.cbLowAudioLatency->setChecked(fields.low_audio_latency);
 
     _ui.cbAutoEarDetection->setChecked(fields.automatic_ear_detection);
+
+    _ui.cbShowOnConnect->setChecked(fields.show_on_connect);
 
     _ui.hsMaxReceivingRange->setValue(-fields.rssi_min);
 
@@ -576,6 +586,11 @@ void SettingsWindow::On_cbLowAudioLatency_toggled(bool checked)
 void SettingsWindow::On_cbAutoEarDetection_toggled(bool checked)
 {
     ModifiableAccess()->automatic_ear_detection = checked;
+}
+
+void SettingsWindow::On_cbShowOnConnect_toggled(bool checked)
+{
+    ModifiableAccess()->show_on_connect = checked;
 }
 
 void SettingsWindow::On_hsMaxReceivingRange_valueChanged(int value)
