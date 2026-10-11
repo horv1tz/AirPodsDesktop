@@ -101,6 +101,15 @@ jobs:
             --exclude-regex '^UiRenderingTests$' `
             --output-on-failure
 
+      - name: Upload UI validation screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-validation-${{ github.sha }}
+          path: Build/Release/UiValidation/*.png
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Package release assets
         env:
           VERSION: ${{ steps.version.outputs.version }}
