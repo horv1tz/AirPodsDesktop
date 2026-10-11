@@ -10,6 +10,15 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Publish a GitHub Release for the project version (creates the v<version> tag if it is missing)'
+        type: boolean
+        default: false
+      draft:
+        description: 'With "release": create the release as a draft instead of publishing it'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -268,7 +277,7 @@ jobs:
           retention-days: 30
 
   release:
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.release)
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -281,16 +290,44 @@ jobs:
           name: AirPodsDesktop-${{ needs.build.outputs.version }}-${{ github.sha }}
           path: dist
 
-      - name: Create draft GitHub Release
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "${{ github.ref_name }}"
-          "dist/AirPodsDesktop-${{ needs.build.outputs.version }}-win64.exe"
-          "dist/AirPodsDesktop-${{ needs.build.outputs.version }}-win64-portable.zip"
-          "dist/AirPodsDesktop-${{ needs.build.outputs.version }}-win32-bridge.exe"
-          --repo "${{ github.repository }}"
-          --draft
-          --verify-tag
-          --generate-notes
-          --title "AirPodsDesktop ${{ github.ref_name }}"
+          VERSION: ${{ needs.build.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
+          IS_TAG: ${{ github.ref_type == 'tag' }}
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          AS_DRAFT: ${{ inputs.draft }}
+        run: |
+          set -euo pipefail
+
+          # A tag push releases that tag. A manual run releases `v<version>` at the built commit and
+          # lets `gh` create the tag.
+          if [ "$IS_TAG" = "true" ]; then
+            tag="$REF_NAME"
+            target_args=(--verify-tag)
+          else
+            tag="v$VERSION"
+            target_args=(--target "$COMMIT_SHA")
+          fi
+
+          if gh release view "$tag" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::A release for $tag already exists. Bump the version in CMakeLists.txt and vcpkg.json."
+            exit 1
+          fi
+
+          draft_args=()
+          if [ "$AS_DRAFT" = "true" ]; then
+            draft_args=(--draft)
+          fi
+
+          gh release create "$tag" \
+            "dist/AirPodsDesktop-$VERSION-win64.exe" \
+            "dist/AirPodsDesktop-$VERSION-win64-portable.zip" \
+            "dist/AirPodsDesktop-$VERSION-win32-bridge.exe" \
+            --repo "$REPOSITORY" \
+            "${target_args[@]}" \
+            "${draft_args[@]}" \
+            --generate-notes \
+            --title "AirPodsDesktop $tag"
