@@ -14,6 +14,8 @@
         <file>Image/Theme/CheckMarkDark.svg</file>
         <file>Image/Theme/ChevronDownLight.svg</file>
         <file>Image/Theme/ChevronDownDark.svg</file>
+        <file>Image/Theme/SwitchThumbOff.svg</file>
+        <file>Image/Theme/SwitchThumbOn.svg</file>
         <file>Font/Inter/Inter-Regular.ttf</file>
         <file>Font/Inter/Inter-Medium.ttf</file>
         <file>Font/Inter/Inter-SemiBold.ttf</file>

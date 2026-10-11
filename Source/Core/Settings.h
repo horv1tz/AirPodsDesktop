@@ -74,6 +74,8 @@ void SetRepository(std::unique_ptr<Repository> repository);
     callback(bool, automatic_ear_detection, {true},                                                \
         Impl::OnApply(&OnApply_automatic_ear_detection),                                           \
         Impl::Desc{QT_TRANSLATE_NOOP("QObject", "It automatically pauses or resumes media when your AirPods are taken out or put in your ears.")}) \
+    callback(bool, show_on_connect, {true},                                                        \
+        Impl::Desc{QT_TRANSLATE_NOOP("QObject", "Shows the main window with your AirPods when they connect to this computer.")}) \
     callback(QString, skipped_version, {})                                                         \
     callback(int16_t, rssi_min, {-80}, Impl::OnApply(&OnApply_rssi_min))                           \
     callback(bool, reduce_loud_sounds, {false}, Impl::Deprecated())                                \

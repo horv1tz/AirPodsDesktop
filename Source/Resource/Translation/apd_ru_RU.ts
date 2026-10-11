@@ -246,6 +246,10 @@ You need to pair your AirPods in Windows Bluetooth Settings first.</source>
 <context>
     <name>QObject</name>
     <message>
+        <source>Shows the main window with your AirPods when they connect to this computer.</source>
+        <translation>Показывает главное окно с вашими AirPods при их подключении к этому компьютеру.</translation>
+    </message>
+    <message>
         <source>It automatically pauses or resumes media when your AirPods are taken out or put in your ears.</source>
         <translation>Автоматическая приостановка или возобновление воспроизведения мультимедиа, когда вы снимаете или надеваете AirPods.</translation>
     </message>
@@ -346,6 +350,10 @@ You need to pair your AirPods in Windows Bluetooth Settings first.</source>
     <message>
         <source>Automatic ear detection</source>
         <translation>Автоматическое определение положения в ухе</translation>
+    </message>
+    <message>
+        <source>Show on connect</source>
+        <translation>Показывать при подключении</translation>
     </message>
     <message>
         <source>Low audio latency</source>

@@ -399,6 +399,7 @@ void AirPodsDomainTests::LoadsSettingsThroughRepository()
     QCOMPARE(Core::Settings::Load(), Core::Settings::LoadResult::Successful);
     QVERIFY(Core::Settings::GetCurrent().auto_run);
     QCOMPARE(Core::Settings::GetCurrent().appearance_mode, Core::Settings::AppearanceMode::Dark);
+    QVERIFY(Core::Settings::GetCurrent().show_on_connect); // Absent key keeps its default.
 
     RecordingSettingsObserver observer;
     Core::Settings::SetApplyObserver(&observer);

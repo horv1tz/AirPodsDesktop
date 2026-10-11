@@ -356,7 +356,7 @@ void TrayIcon::OnNewVersionClicked()
     emit UserUpdateRequested(releaseInfo);
 }
 
-void TrayIcon::OnSettingsClicked()
+void TrayIcon::ShowSettings()
 {
     if (!_settingsWindow.isVisible() ||
         _settingsWindow.GetTabCurrentIndex() == _settingsWindow.GetTabLastVisibleIndex())
@@ -366,6 +366,12 @@ void TrayIcon::OnSettingsClicked()
 
     _settingsWindow.show();
     _settingsWindow.raise();
+    _settingsWindow.activateWindow();
+}
+
+void TrayIcon::OnSettingsClicked()
+{
+    ShowSettings();
 }
 
 void TrayIcon::OnAboutClicked()

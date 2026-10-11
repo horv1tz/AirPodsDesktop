@@ -18,9 +18,12 @@
 
 #include "Theme.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <optional>
+#include <utility>
+#include <vector>
 
 #include <QAbstractNativeEventFilter>
 #include <QPointer>
@@ -50,6 +53,8 @@ namespace {
 constexpr DWORD kDwmwaUseImmersiveDarkModeBefore20H1 = 19;
 constexpr DWORD kDwmwaUseImmersiveDarkMode = 20;
 constexpr DWORD kDwmwaWindowCornerPreference = 33;
+constexpr DWORD kDwmwaCaptionColor = 35;
+constexpr DWORD kDwmwaTextColor = 36;
 constexpr DWORD kDwmwcpRoundSmall = 3;
 #endif
 
@@ -155,6 +160,24 @@ qreal RelativeLuminance(const QColor &color)
            0.0722 * LinearColorChannel(color.blueF());
 }
 
+// WCAG contrast ratio, from 1 (identical) to 21 (black on white).
+qreal ContrastRatio(const QColor &a, const QColor &b)
+{
+    const auto la = RelativeLuminance(a);
+    const auto lb = RelativeLuminance(b);
+    return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+}
+
+// Darkens `color` step by step until white on top of it reaches `minimum`, so a white switch
+// thumb stays visible on a pale accent.
+QColor EnsureWhiteContrast(QColor color, qreal minimum)
+{
+    for (int i = 0; i < 20 && ContrastRatio(color, Qt::white) < minimum; ++i) {
+        color = Mix(color, Qt::black, 0.08);
+    }
+    return color;
+}
+
 QColor AccessibleForeground(const QColor &background)
 {
     // WCAG contrast ratio against black/white. One of the two is always at least 4.58:1.
@@ -236,17 +259,19 @@ Palette BuildPalette(const SystemTheme &system)
         p.windowBackground = QColor{"#F5F5F7"};
         p.surface = QColor{"#FFFFFF"};
         p.surfaceSecondary = QColor{"#ECECEE"};
-        p.cardBorder = QColor{"#D9D9DD"};
+        p.cardBorder = QColor{"#E5E5EA"};
         p.separator = QColor{"#D1D1D6"};
         p.text = QColor{"#1D1D1F"};
-        p.textSecondary = QColor{"#6E6E73"};
+        p.textSecondary = QColor{"#68686D"};
         p.textDisabled = QColor{"#AEAEB2"};
         p.controlFill = QColor{"#FFFFFF"};
         p.controlHover = QColor{"#E5E5EA"};
         p.controlPressed = QColor{"#D1D1D6"};
         p.controlBorder = QColor{"#C7C7CC"};
+        p.switchOff = QColor{"#C7C7CC"};
         p.popupSurface = QColor{"#FFFFFF"};
         p.popupBorder = QColor{"#C7C7CC"};
+        p.errorText = QColor{"#D70015"};
 
         p.mainSurface = QColor{"#FFFFFF"};
         p.mainText = QColor{"#1B1B1B"};
@@ -254,8 +279,11 @@ Palette BuildPalette(const SystemTheme &system)
         p.mainCloseBg = QColor{"#EEEEEF"};
         p.mainCloseHover = QColor{"#E4E4E5"};
         p.mainClosePressed = QColor{"#DADADB"};
-        p.mainCloseGlyph = QColor{"#838387"};
+        p.mainCloseGlyph = QColor{"#6E6E73"};
+        p.mainRim = QColor{0, 0, 0, 26};
         p.batteryBorder = QColor{"#8E8E93"};
+        p.batteryNormal = QColor{"#34C759"};
+        p.batteryAlarm = QColor{"#FF383C"};
 
         p.accent = system.accentForLight.value_or(system.accent.darker(110));
     }
@@ -272,8 +300,10 @@ Palette BuildPalette(const SystemTheme &system)
         p.controlHover = QColor{"#48484A"};
         p.controlPressed = QColor{"#545458"};
         p.controlBorder = QColor{"#545458"};
-        p.popupSurface = QColor{"#2C2C2C"};
+        p.switchOff = QColor{"#636366"};
+        p.popupSurface = QColor{"#2C2C2E"};
         p.popupBorder = QColor{"#545458"};
+        p.errorText = QColor{"#FF6A60"};
 
         p.mainSurface = QColor{"#1C1C1E"};
         p.mainText = QColor{"#F2F2F7"};
@@ -282,21 +312,29 @@ Palette BuildPalette(const SystemTheme &system)
         p.mainCloseHover = QColor{"#3A3A3C"};
         p.mainClosePressed = QColor{"#48484A"};
         p.mainCloseGlyph = QColor{"#A1A1A6"};
+        p.mainRim = QColor{255, 255, 255, 36};
         p.batteryBorder = QColor{"#636366"};
+        p.batteryNormal = QColor{"#30D158"};
+        p.batteryAlarm = QColor{"#FF4245"};
 
         p.accent = system.accentForDark.value_or(system.accent.lighter(135));
     }
 
-    // Shared iOS battery colours
-    p.batteryNormal = QColor{"#34C759"};
-    p.batteryAlarm = QColor{"#FF3B30"};
-    p.errorText = p.dark ? QColor{"#FF453A"} : QColor{"#FF3B30"};
+    // Sidebar rows are a faint wash of the text colour over the sidebar surface.
+    p.sidebarHover = Mix(p.surfaceSecondary, p.text, 0.05);
+    p.sidebarSelected = Mix(p.surfaceSecondary, p.text, 0.10);
+    p.switchOffHover = Mix(p.switchOff, p.text, 0.08);
 
     // Preserve the system accent preference while using macOS-like pressed-state blending.
     p.accentHover = Mix(p.accent, p.surface, 0.10);
     p.accentPressed = Mix(p.accent, p.surface, 0.20);
     p.accentDisabled = p.dark ? QColor{"#545458"} : QColor{"#C7C7CC"};
     p.accentText = AccessibleForeground(p.accent);
+
+    // The dark-mode accent is a pale tint, so a white switch thumb needs a deeper fill. Start
+    // from the plain system accent there and darken until the thumb has at least 3:1 contrast.
+    p.accentFill = EnsureWhiteContrast(p.dark ? system.accent : p.accent, 3.0);
+    p.accentFillHover = Mix(p.accentFill, p.surface, 0.10);
 
     return p;
 }
@@ -550,8 +588,8 @@ QString Manager::StyleSheet() const
 /* ---------- Buttons ---------- */
 QPushButton {
     min-height: 30px;
-    padding: 0 16px;
-    border-radius: 7px;
+    padding: 0 18px;
+    border-radius: 16px;
     border: 1px solid @controlBorder;
     background: @controlFill;
     color: @text;
@@ -573,24 +611,27 @@ QPushButton:default:pressed, QPushButton[cssClass="accent"]:pressed {
 QPushButton:default:disabled, QPushButton[cssClass="accent"]:disabled {
     background: @accentDisabled; border-color: @accentDisabled; color: @textDisabled;
 }
+QPushButton[cssClass="accent"] { border-radius: 20px; font-weight: 600; }
 
-/* ---------- Check box ---------- */
-QCheckBox { spacing: 8px; }
+/* ---------- Switch (every check box in the application is an on/off setting) ---------- */
+QCheckBox { spacing: 10px; }
 QCheckBox::indicator {
-    width: 16px; height: 16px;
-    border-radius: 4px;
-    border: 1px solid @controlBorder;
-    background: @controlFill;
+    width: 40px; height: 24px;
+    border: none;
+    border-radius: 12px;
+    background: @switchOff;
+    image: url(:/Resource/Image/Theme/SwitchThumbOff.svg);
 }
-QCheckBox::indicator:hover { border-color: @textSecondary; background: @controlHover; }
+QCheckBox::indicator:hover, QCheckBox::indicator:focus { background: @switchOffHover; }
 QCheckBox::indicator:checked {
-    border-color: @accent;
-    background: @accent;
-    image: url(:/Resource/Image/Theme/CheckMark@onAccentGlyph.svg);
+    background: @accentFill;
+    image: url(:/Resource/Image/Theme/SwitchThumbOn.svg);
 }
-QCheckBox::indicator:checked:hover { background: @accentHover; border-color: @accentHover; }
-QCheckBox::indicator:disabled { border-color: @cardBorder; background: @windowBackground; }
-QCheckBox::indicator:checked:disabled { background: @accentDisabled; border-color: @accentDisabled; }
+QCheckBox::indicator:checked:hover, QCheckBox::indicator:checked:focus {
+    background: @accentFillHover;
+}
+QCheckBox::indicator:disabled { background: @cardBorder; }
+QCheckBox::indicator:checked:disabled { background: @accentDisabled; }
 
 /* ---------- Radio button ---------- */
 QRadioButton { spacing: 8px; }
@@ -611,6 +652,7 @@ QRadioButton::indicator:checked:hover { width: 10px; height: 10px; border-width:
 QRadioButton::indicator:checked:disabled { border-color: @accentDisabled; }
 
 /* ---------- Slider ---------- */
+QSlider:horizontal { min-height: 20px; }
 QSlider::groove:horizontal {
     height: 4px;
     border-radius: 2px;
@@ -618,21 +660,20 @@ QSlider::groove:horizontal {
 }
 QSlider::sub-page:horizontal { background: @accent; border-radius: 2px; }
 QSlider::handle:horizontal {
-    width: 8px; height: 8px;
+    width: 18px; height: 18px;
     margin: -8px 0;
-    border-radius: 9px;
-    border: 5px solid @controlFill;
-    background: @accent;
+    border-radius: 10px;
+    border: 1px solid @controlBorder;
+    background: #FFFFFF;
 }
-QSlider::handle:horizontal:hover { width: 10px; height: 10px; border-width: 4px; }
-QSlider::handle:horizontal:pressed { width: 6px; height: 6px; border-width: 6px; }
+QSlider::handle:horizontal:pressed { border-color: @accent; }
 QSlider::sub-page:horizontal:disabled { background: @accentDisabled; }
 
 /* ---------- Combo box ---------- */
 QComboBox {
     min-height: 28px;
-    padding: 0 32px 0 10px;
-    border-radius: 7px;
+    padding: 0 32px 0 12px;
+    border-radius: 15px;
     border: 1px solid @controlBorder;
     background: @controlFill;
     color: @text;
@@ -657,7 +698,7 @@ QWidget#apdComboPopup {
 }
 QWidget#apdComboPopup QAbstractItemView, QComboBox QAbstractItemView {
     background: transparent;
-    border: 4px solid transparent;
+    border: 8px solid transparent;
     border-radius: 0;
     padding: 0;
     outline: 0;
@@ -668,7 +709,7 @@ QWidget#apdComboPopup QAbstractItemView, QComboBox QAbstractItemView {
 QComboBox QAbstractItemView::item {
     min-height: 28px;
     padding: 0 8px;
-    border-radius: 6px;
+    border-radius: 7px;
 }
 QComboBox QAbstractItemView::item:hover { background: @controlHover; }
 QComboBox QAbstractItemView::item:selected { background: @controlHover; color: @text; }
@@ -677,42 +718,52 @@ QComboBox QAbstractItemView::item:selected { background: @controlHover; color: @
 QListWidget {
     background: @surface;
     border: 1px solid @cardBorder;
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 4px;
     outline: 0;
 }
 QListWidget::item {
     min-height: 32px;
     padding: 0 8px;
-    border-radius: 6px;
+    border-radius: 8px;
     color: @text;
 }
 QListWidget::item:hover { background: @controlHover; }
 QListWidget::item:selected { background: @controlHover; color: @text; }
 
 /* Settings navigation pane */
-QWidget#navPane { background: @surfaceSecondary; }
+QFrame#navPane {
+    background: @surfaceSecondary;
+    border: 1px solid @cardBorder;
+    border-radius: 14px;
+}
 QListWidget#navList {
     background: transparent;
     border: none;
     padding: 0;
-    selection-background-color: @accent;
-    selection-color: @accentText;
+    outline: 0;
+    icon-size: 18px;
+    selection-background-color: transparent;
+    selection-color: @text;
 }
 QListWidget#navList::item {
-    min-height: 36px;
+    min-height: 32px;
     padding-left: 12px;
     margin: 2px 0;
-    border-radius: 7px;
+    border-radius: 16px;
+    color: @text;
 }
-QListWidget#navList::item:hover { background: @controlHover; }
+QListWidget#navList::item:hover { background: @sidebarHover; }
+QListWidget#navList::item:selected { background: @sidebarSelected; color: @text; }
 
 /* ---------- Settings cards ---------- */
-QFrame[cssClass="settingCard"] {
+QFrame[cssClass="settingCard"], QFrame[cssClass="settingGroup"] {
     background: @surface;
     border: 1px solid @cardBorder;
-    border-radius: 10px;
+    border-radius: 14px;
 }
+QFrame[cssClass="settingRow"] { background: transparent; border: none; }
+QFrame[cssClass="rowSeparator"] { background: @cardBorder; border: none; margin-left: 16px; }
 QLabel[cssClass="cardTitle"] {
     font-family: @bodyFontFamilies;
     font-size: 10pt;
@@ -738,7 +789,7 @@ QLabel[cssClass="appTitle"] {
 QTextEdit, QPlainTextEdit {
     background: @surface;
     border: 1px solid @controlBorder;
-    border-radius: 8px;
+    border-radius: 10px;
     padding: 6px;
     selection-background-color: @accent;
     selection-color: @accentText;
@@ -748,7 +799,7 @@ QTextBrowser#tbCredits { background: transparent; border: none; padding: 0; }
 /* ---------- Group box ---------- */
 QGroupBox {
     border: 1px solid @cardBorder;
-    border-radius: 10px;
+    border-radius: 14px;
     margin-top: 12px;
     padding-top: 8px;
     background: @surface;
@@ -779,7 +830,7 @@ QToolTip {
     background: @popupSurface;
     color: @text;
     border: 1px solid @popupBorder;
-    border-radius: 7px;
+    border-radius: 8px;
     padding: 6px 8px;
 }
 
@@ -788,11 +839,11 @@ QMenu {
     background: transparent;
     border: none;
     border-radius: 10px;
-    padding: 4px;
+    padding: 8px; /* padding = Theme::kPopupSurfaceInset + 5 */
 }
 QMenu::item {
     padding: 7px 28px 7px 12px;
-    border-radius: 6px;
+    border-radius: 7px;
     background: transparent;
     color: @text;
 }
@@ -804,11 +855,12 @@ QMenu::indicator:non-exclusive:checked { image: url(:/Resource/Image/Theme/Check
 
 /* ---------- Dialog button box ---------- */
 QDialogButtonBox { dialogbuttonbox-buttons-have-icons: 0; }
-
+)"
+                    R"(
 /* ---------- Grouped software update dialog ---------- */
 QDialog#UpdateWindow { background: @windowBackground; }
 QDialog#UpdateWindow QFrame#card {
-    background: @surface; border: 1px solid @cardBorder; border-radius: 10px;
+    background: @surface; border: 1px solid @cardBorder; border-radius: 14px;
 }
 QDialog#UpdateWindow QFrame[updateRole="divider"] {
     background: @separator; border: none; min-height: 1px; max-height: 1px;
@@ -819,11 +871,11 @@ QDialog#UpdateWindow QLabel[updateRole="sectionTitle"] { font-weight: 600; }
 QDialog#UpdateWindow QLabel[updateRole="secondary"] { color: @textSecondary; }
 QDialog#UpdateWindow QLabel[updateRole="error"] { color: @errorText; }
 QDialog#UpdateWindow QPlainTextEdit {
-    background: @notesBackground; border: 1px solid @notesBorder; border-radius: 6px;
+    background: @notesBackground; border: 1px solid @notesBorder; border-radius: 10px;
     padding: 8px; font-size: 9pt; color: @text;
 }
 QDialog#UpdateWindow QPushButton {
-    min-height: 0; padding: 0 16px; border-radius: 6px; font-size: 9pt;
+    min-height: 0; padding: 0 16px; border-radius: 14px; font-size: 9pt;
     border: 1px solid @controlBorder; background: @controlFill; color: @text;
 }
 QDialog#UpdateWindow QPushButton:hover { background: @controlHover; }
@@ -851,7 +903,7 @@ QDialog#UpdateWindow QPushButton:disabled {
 }
 )";
 
-    const std::pair<QString, QString> replacements[] = {
+    std::vector<std::pair<QString, QString>> replacements{
         {"@displayFontFamilies", CssFontFamilies(DisplayFontFamilies(ActiveTypographyLocale()))},
         {"@bodyFontFamilies", CssFontFamilies(BodyFontFamilies(ActiveTypographyLocale()))},
         {"@notesBackground", ColorName(p.dark ? p.surfaceSecondary : p.windowBackground)},
@@ -874,19 +926,52 @@ QDialog#UpdateWindow QPushButton:disabled {
         {"@accentPressed", ColorName(p.accentPressed)},
         {"@accentDisabled", ColorName(p.accentDisabled)},
         {"@accentText", ColorName(p.accentText)},
+        {"@accentFillHover", ColorName(p.accentFillHover)},
+        {"@accentFill", ColorName(p.accentFill)},
         {"@accent", ColorName(p.accent)},
+        {"@sidebarHover", ColorName(p.sidebarHover)},
+        {"@sidebarSelected", ColorName(p.sidebarSelected)},
+        {"@switchOffHover", ColorName(p.switchOffHover)},
+        {"@switchOff", ColorName(p.switchOff)},
         {"@popupSurface", ColorName(p.popupSurface)},
         {"@popupBorder", ColorName(p.popupBorder)},
         {"@onAccentGlyph", onAccentGlyph},
         {"@onSurfaceGlyph", onSurfaceGlyph},
     };
 
-    // Longer names are listed before their prefixes (e.g. `@textSecondary` before `@text`)
+    // Replace longer names first, so no token is clobbered by another one that is its prefix
+    // (`@textSecondary` before `@text`, `@accentFillHover` before `@accentFill` before `@accent`).
+    std::ranges::stable_sort(
+        replacements, [](const auto &a, const auto &b) { return a.first.size() > b.first.size(); });
     for (const auto &[key, value] : replacements) {
         sheet.replace(key, value);
     }
 
+    if (const auto at = sheet.indexOf(QLatin1Char('@')); at >= 0) {
+        LOG(Error, "Unresolved stylesheet token near '{}'", sheet.mid(at, 24));
+    }
+
     return sheet;
+}
+
+void PaintPopupSurface(QWidget *popup)
+{
+    if (popup == nullptr) {
+        return;
+    }
+
+    const auto &colors = Manager::Instance().Colors();
+    QPainter painter{popup};
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    painter.fillRect(popup->rect(), Qt::transparent);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(colors.popupBorder);
+    painter.setBrush(colors.popupSurface);
+    painter.drawRoundedRect(
+        QRectF{popup->rect()}.adjusted(
+            kPopupSurfaceInset, kPopupSurfaceInset, -kPopupSurfaceInset, -kPopupSurfaceInset),
+        kPopupSurfaceRadius, kPopupSurfaceRadius);
 }
 
 class MenuSurfacePaintFilter final : public QObject
@@ -897,17 +982,10 @@ public:
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override
     {
+        // Only paints the surface underneath; the event is not consumed, so the menu still draws
+        // its items on top.
         if (event->type() == QEvent::Paint) {
-            auto *menu = qobject_cast<QMenu *>(watched);
-            const auto &colors = Manager::Instance().Colors();
-            QPainter painter{menu};
-            painter.setCompositionMode(QPainter::CompositionMode_Source);
-            painter.fillRect(menu->rect(), Qt::transparent);
-            painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
-            painter.setRenderHint(QPainter::Antialiasing);
-            painter.setPen(colors.popupBorder);
-            painter.setBrush(colors.popupSurface);
-            painter.drawRoundedRect(QRectF{menu->rect()}.adjusted(3, 3, -3, -3), 8, 8);
+            PaintPopupSurface(qobject_cast<QMenu *>(watched));
         }
         return QObject::eventFilter(watched, event);
     }
@@ -964,10 +1042,23 @@ void Manager::ApplyToWindow(QWidget *topLevel)
         if (FAILED(DwmSetWindowAttribute(hwnd, kDwmwaUseImmersiveDarkMode, &dark, sizeof(dark)))) {
             DwmSetWindowAttribute(hwnd, kDwmwaUseImmersiveDarkModeBefore20H1, &dark, sizeof(dark));
         }
+
+        // Windows 11 can recolour the title bar. Matching it to the window background lets the
+        // native caption blend into the window. Older systems ignore these attributes.
+        if (Core::OS::Windows::System::Is11OrGreater()) {
+            const auto &colors = _impl->palette;
+            const COLORREF caption =
+                RGB(colors.windowBackground.red(), colors.windowBackground.green(),
+                    colors.windowBackground.blue());
+            const COLORREF text = RGB(colors.text.red(), colors.text.green(), colors.text.blue());
+            DwmSetWindowAttribute(hwnd, kDwmwaCaptionColor, &caption, sizeof(caption));
+            DwmSetWindowAttribute(hwnd, kDwmwaTextColor, &text, sizeof(text));
+        }
     }
     else if (Core::OS::Windows::System::Is11OrGreater()) {
-        // Menus, combo popups and tool tips paint a rounded border in the stylesheet; DWM
-        // clips the window itself so no square corners peek out.
+        // Menus and combo popups carry `apdSkipDwm` and never get here, so this branch only
+        // reaches unconfigured Qt::Popup or Qt::ToolTip windows, in practice QToolTip. Its
+        // stylesheet border is rounded; DWM clips the window itself so no square corners peek out.
         DWORD preference = kDwmwcpRoundSmall;
         DwmSetWindowAttribute(hwnd, kDwmwaWindowCornerPreference, &preference, sizeof(preference));
     }

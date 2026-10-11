@@ -1,8 +1,10 @@
 # Release Process
 
 GitHub Actions builds and tests every push to `main` and every pull request. A tag matching
-`v*.*.*` additionally creates a draft GitHub Release containing the NSIS installer and a portable
-ZIP. Review and test the draft assets before publishing the release manually.
+`v*.*.*` additionally publishes a GitHub Release containing the NSIS installer, the `win32-bridge`
+alias and a portable ZIP. A manual run can release without a tag: open **Actions → Windows → Run
+workflow**, tick `release` (and `draft` to review the assets before publishing). The workflow then
+creates `v<version>` at the built commit. It fails if that release already exists.
 
 The updater defaults to `SpriteOvO/AirPodsDesktop`. GitHub Actions overrides the owner and repository
 with the repository running the workflow, so a fork build checks that fork for test releases. For a
@@ -55,8 +57,9 @@ $bridgeHash = (Get-FileHash .\AirPodsDesktop-0.6.0-win32-bridge.exe -Algorithm S
 if ($win64Hash -ne $bridgeHash) { throw 'Installer hashes do not match.' }
 ```
 
-The automated workflow always creates a draft. Keep it unpublished until the release notes, packaged
-files, checksums, installer upgrade, and portable application have passed manual acceptance testing.
+A tag push publishes immediately; use a manual run with `draft` ticked when the release needs manual
+acceptance testing first. Keep a draft unpublished until the release notes, packaged files,
+checksums, installer upgrade, and portable application have passed it.
 After downloading the draft assets, replace the local release-note checksum placeholders with values
 calculated from those assets, then apply the reviewed body with `gh release edit --notes-file`. No
 separate checksum asset is uploaded.
@@ -74,7 +77,7 @@ the bridge alias. Calculate checksums from the completed draft assets:
 - `WINDOWS_SIGNING_CERTIFICATE_BASE64`: Base64-encoded PFX certificate.
 - `WINDOWS_SIGNING_CERTIFICATE_PASSWORD`: Password for the PFX certificate.
 
-When neither secret is configured, the workflow still creates a draft release, but both installer
+When neither secret is configured, the workflow still creates the release, but both installer
 assets are unsigned and may trigger a Windows SmartScreen warning. If only one secret is configured,
 the workflow fails to prevent a partially configured release. The temporary certificate is deleted
 after `signtool` signs and verifies the installer.

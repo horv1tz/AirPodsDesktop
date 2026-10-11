@@ -84,6 +84,7 @@ private:
     void On_cbTrayQuickConnectEnabled_toggled(bool checked);
     void On_cbTrayQuickConnectDevice_currentIndexChanged(int index);
     void On_cbAutoEarDetection_toggled(bool checked);
+    void On_cbShowOnConnect_toggled(bool checked);
     void On_hsMaxReceivingRange_valueChanged(int value);
 
     // About
@@ -96,8 +97,11 @@ private:
     UTILS_QT_DISABLE_ESC_QUIT(QDialog);
     UTILS_QT_REGISTER_LANGUAGECHANGE(QDialog, [this] {
         _ui.retranslateUi(this);
+        _ui.cbAutoRun->setAccessibleName(_ui.lbAutoRun->text());
+        _ui.hsMaxReceivingRange->setAccessibleName(_ui.lbReceivingRange->text());
         _ui.cbLowAudioLatency->setAccessibleName(_ui.lbLowAudioLatency->text());
         _ui.cbAutoEarDetection->setAccessibleName(_ui.lbAutoEarDetection->text());
+        _ui.cbShowOnConnect->setAccessibleName(_ui.lbShowOnConnect->text());
         _ui.cbTrayQuickConnectEnabled->setAccessibleName(_ui.lbTrayQuickConnect->text());
         _ui.cbAppearanceMode->setAccessibleName(_ui.lbAppearance->text());
         _aboutTextTemplate = _ui.label->text();

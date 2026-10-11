@@ -54,6 +54,7 @@ public:
     void Unbind();
     void VersionUpdateAvailable(const Core::Update::ReleaseInfo &releaseInfo);
     void ShowContextMenu(const QPoint &position);
+    void ShowSettings();
 
 Q_SIGNALS:
     void OnTrayIconBatteryChangedSafely(Core::Settings::TrayIconBatteryBehavior value);

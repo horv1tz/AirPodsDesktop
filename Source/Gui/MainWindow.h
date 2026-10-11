@@ -39,7 +39,7 @@
 
 namespace Gui {
 
-class CloseButton;
+class GlyphButton;
 class BatteryInfo;
 
 class MainWindow : public QDialog
@@ -72,11 +72,13 @@ Q_SIGNALS:
     void HideSafely();
     bool VersionUpdateAvailableSafely(const Core::Update::ReleaseInfo &releaseInfo, bool silent);
     void SilentUpdateAvailable(const Core::Update::ReleaseInfo &releaseInfo);
+    void SettingsRequested();
 
 private:
     constexpr static QSize _windowSize{320, 300};
     constexpr static QSize _screenMargin{24, 24};
-    constexpr static qreal _windowCornerRadius = 32.0;
+    constexpr static qreal _windowCornerRadius = 26.0;
+    constexpr static int _headerInset = 12;
     constexpr static int _deviceLabelMaximumPointSize = 18;
     constexpr static int _deviceLabelMinimumPointSize = 12;
 
@@ -86,7 +88,8 @@ private:
     Widget::AnimationView *_animationView;
     AnimationPlayback *_playback;
     QTimer *_autoHideTimer = new QTimer{this};
-    CloseButton *_closeButton;
+    GlyphButton *_closeButton{};
+    GlyphButton *_settingsButton{};
     Widget::Battery *_leftBattery = new Widget::Battery{this};
     Widget::Battery *_rightBattery = new Widget::Battery{this};
     Widget::Battery *_caseBattery = new Widget::Battery{this};
@@ -111,6 +114,7 @@ private:
     void VersionUpdateAvailable(const Core::Update::ReleaseInfo &releaseInfo, bool silent);
     void Repaint();
     void ApplyTheme();
+    void ApplyHeaderTexts();
     void FitDeviceLabelFont(const QString &text);
 
     void OnAppStateChanged(Qt::ApplicationState state);
@@ -128,6 +132,7 @@ private:
     UTILS_QT_DISABLE_ESC_QUIT(QDialog);
     UTILS_QT_REGISTER_LANGUAGECHANGE(QDialog, [this] {
         _ui.retranslateUi(this);
+        ApplyHeaderTexts();
         Repaint();
     });
 };
