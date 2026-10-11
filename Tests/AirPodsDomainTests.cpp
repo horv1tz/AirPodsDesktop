@@ -716,8 +716,12 @@ void AirPodsDomainTests::PresentsMainWindowCaseBattery()
 
 void AirPodsDomainTests::MapsMainWindowAnimationResources()
 {
+    const auto airPods4Anc = Gui::GetAnimationPresentation(Core::AirPods::Model::AirPods_4_ANC);
+    QCOMPARE(airPods4Anc.resource, QString{"qrc:/Resource/Video/AirPods_4.avi"});
+    QCOMPARE(airPods4Anc.sourceSize, QSize(900, 450));
+
     const auto airPods5 = Gui::GetAnimationPresentation(Core::AirPods::Model::AirPods_5);
-    QCOMPARE(airPods5.resource, QString{"qrc:/Resource/Video/AirPods_4_ANC.avi"});
+    QCOMPARE(airPods5.resource, QString{"qrc:/Resource/Video/AirPods_4.avi"});
     QCOMPARE(airPods5.sourceSize, QSize(900, 450));
 
     const auto pro = Gui::GetAnimationPresentation(Core::AirPods::Model::AirPods_Pro_2_USB_C);

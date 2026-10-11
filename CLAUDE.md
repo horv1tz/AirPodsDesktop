@@ -196,7 +196,6 @@ in `vcpkg.json`; a `v*.*.*` tag must match both. CI fails the build otherwise. F
 
 Keep animation source material and conversion tooling outside the repository. Commit only the
 generated `.avi` runtime asset needed by the application, then register and test it as described
-above. The ten current animations are 360 frames at 60 fps.
+above. The nine current animations are 360 frames at 60 fps.
 
-Note that `AirPods_4.avi` and `AirPods_4_ANC.avi` are currently byte-identical, so one conversion
-ran against the wrong source. Regenerating the ANC one needs the original `AirPods1,5-v2` asset.
+`AirPods_4` and `AirPods_4_ANC` (and `AirPods_5`) share `AirPods_4.avi`, since the variants look identical.

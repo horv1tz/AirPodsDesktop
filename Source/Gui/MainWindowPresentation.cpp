@@ -112,12 +112,11 @@ AnimationPresentation GetAnimationPresentation(Core::AirPods::Model model)
         return {"qrc:/Resource/Video/AirPods_2.avi", {800, 400}};
     case Model::AirPods_3:
         return {"qrc:/Resource/Video/AirPods_3.avi", {900, 450}};
+    // The ANC variant looks identical to the standard AirPods 4, so they share artwork.
     case Model::AirPods_4:
-        return {"qrc:/Resource/Video/AirPods_4.avi", {900, 450}};
     case Model::AirPods_4_ANC:
-        return {"qrc:/Resource/Video/AirPods_4_ANC.avi", {900, 450}};
     case Model::AirPods_5:
-        return {"qrc:/Resource/Video/AirPods_4_ANC.avi", {900, 450}};
+        return {"qrc:/Resource/Video/AirPods_4.avi", {900, 450}};
     case Model::AirPods_Pro:
         return {"qrc:/Resource/Video/AirPods_Pro.avi", {900, 450}};
     case Model::AirPods_Pro_2:
