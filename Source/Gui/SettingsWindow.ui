@@ -24,40 +24,43 @@
     <number>0</number>
    </property>
    <property name="leftMargin">
-    <number>0</number>
+    <number>8</number>
    </property>
    <property name="topMargin">
-    <number>0</number>
+    <number>8</number>
    </property>
    <property name="rightMargin">
     <number>0</number>
    </property>
    <property name="bottomMargin">
-    <number>0</number>
+    <number>8</number>
    </property>
    <item>
-    <widget class="QWidget" name="navPane" native="true">
+    <widget class="QFrame" name="navPane">
      <property name="minimumSize">
       <size>
-       <width>180</width>
+       <width>172</width>
        <height>0</height>
       </size>
      </property>
      <property name="maximumSize">
       <size>
-       <width>220</width>
+       <width>212</width>
        <height>16777215</height>
       </size>
      </property>
+     <property name="frameShape">
+      <enum>QFrame::NoFrame</enum>
+     </property>
      <layout class="QVBoxLayout" name="navLayout">
       <property name="leftMargin">
-       <number>12</number>
+       <number>8</number>
       </property>
       <property name="topMargin">
-       <number>20</number>
+       <number>12</number>
       </property>
       <property name="rightMargin">
-       <number>12</number>
+       <number>8</number>
       </property>
       <property name="bottomMargin">
        <number>12</number>
@@ -112,16 +115,16 @@
       <number>12</number>
      </property>
      <property name="leftMargin">
-      <number>24</number>
-     </property>
-     <property name="topMargin">
       <number>20</number>
      </property>
+     <property name="topMargin">
+      <number>12</number>
+     </property>
      <property name="rightMargin">
-      <number>24</number>
+      <number>20</number>
      </property>
      <property name="bottomMargin">
-      <number>16</number>
+      <number>8</number>
      </property>
      <item>
       <widget class="QScrollArea" name="pagesScrollArea">
@@ -329,7 +332,7 @@
               <property name="minimumSize">
                <size>
                 <width>220</width>
-                <height>0</height>
+                <height>24</height>
                </size>
               </property>
               <property name="maximumSize">
@@ -873,7 +876,7 @@
              <widget class="QCheckBox" name="cbLowAudioLatency">
               <property name="minimumSize">
                <size>
-                <width>32</width>
+                <width>40</width>
                 <height>32</height>
                </size>
               </property>
@@ -943,7 +946,7 @@
              <widget class="QCheckBox" name="cbAutoEarDetection">
               <property name="minimumSize">
                <size>
-                <width>32</width>
+                <width>40</width>
                 <height>32</height>
                </size>
               </property>
@@ -1013,7 +1016,7 @@
              <widget class="QCheckBox" name="cbShowOnConnect">
               <property name="minimumSize">
                <size>
-                <width>32</width>
+                <width>40</width>
                 <height>32</height>
                </size>
               </property>
@@ -1064,6 +1067,9 @@
                   <property name="text">
                    <string>Connect the selected device on a tray icon click</string>
                   </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
                   <property name="cssClass" stdset="0">
                    <string notr="true">cardTitle</string>
                   </property>
@@ -1088,7 +1094,7 @@
                <widget class="QCheckBox" name="cbTrayQuickConnectEnabled">
                 <property name="minimumSize">
                  <size>
-                  <width>32</width>
+                  <width>40</width>
                   <height>32</height>
                  </size>
                 </property>

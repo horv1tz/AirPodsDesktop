@@ -43,11 +43,21 @@ void ApplyApplicationTypography(const QLocale &locale);
 // Configure before the popup is first shown so its rounded surface can use per-pixel alpha.
 void ConfigurePopupSurface(QWidget *popup);
 
+// Geometry of the rounded surface that `PaintPopupSurface` draws inside a translucent popup. The
+// stylesheet insets popup content by `kPopupSurfaceInset` plus its own padding, so the content
+// stays clear of the curved corners.
+inline constexpr qreal kPopupSurfaceInset = 3.0;
+inline constexpr qreal kPopupSurfaceRadius = 12.0;
+
+// Paints the popup surface (a transparent background with a bordered rounded rectangle) onto
+// `popup`. Call it from a paint event of a popup that went through `ConfigurePopupSurface`.
+void PaintPopupSurface(QWidget *popup);
+
 //
 // Colour tokens for the whole application.
 //
-// macOS-inspired surfaces drive every regular window, while the `main*` and `battery*` tokens
-// keep the iOS pairing-card look of the popup window.
+// macOS Tahoe-inspired surfaces drive every regular window, while the `main*` and `battery*`
+// tokens keep the iOS pairing-card look of the popup window.
 //
 struct Palette {
     bool dark{false};
@@ -59,10 +69,18 @@ struct Palette {
     QColor accent, accentHover, accentPressed, accentDisabled, accentText;
     QColor popupSurface, popupBorder;
 
+    // Settings sidebar, switches and filled accent controls (all opaque, safe for stylesheets)
+    QColor sidebarHover, sidebarSelected;
+    QColor switchOff, switchOffHover;
+    QColor accentFill, accentFillHover;
+
     // Main window (iOS card)
     QColor mainSurface, mainText, mainTextSecondary;
     QColor mainCloseBg, mainCloseHover, mainClosePressed, mainCloseGlyph;
     QColor batteryBorder, batteryNormal, batteryAlarm;
+    // Translucent hairline around the card. It has alpha, so only painters use it, never the
+    // stylesheet.
+    QColor mainRim;
 
     bool operator==(const Palette &) const = default;
 };

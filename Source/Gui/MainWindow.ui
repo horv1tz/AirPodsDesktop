@@ -17,7 +17,7 @@
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>39</y>
+     <y>44</y>
      <width>300</width>
      <height>32</height>
     </rect>
@@ -108,23 +108,12 @@
     </item>
    </layout>
   </widget>
-  <widget class="QWidget" name="gridLayoutWidget_2">
-   <property name="geometry">
-    <rect>
-     <x>280</x>
-     <y>7</y>
-     <width>31</width>
-     <height>31</height>
-    </rect>
-   </property>
-   <layout class="QGridLayout" name="layoutClose"/>
-  </widget>
   <widget class="QPushButton" name="pushButton">
    <property name="geometry">
     <rect>
      <x>40</x>
      <y>232</y>
-     <width>241</width>
+     <width>240</width>
      <height>40</height>
     </rect>
    </property>

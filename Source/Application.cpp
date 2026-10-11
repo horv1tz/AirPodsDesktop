@@ -320,6 +320,9 @@ void ApdApplication::ConnectGuiComponents()
     connect(
         _mainWindow.get(), &Gui::MainWindow::SilentUpdateAvailable, _trayIcon.get(),
         &Gui::TrayIcon::VersionUpdateAvailable);
+    connect(
+        _mainWindow.get(), &Gui::MainWindow::SettingsRequested, _trayIcon.get(),
+        &Gui::TrayIcon::ShowSettings);
 }
 
 int ApdApplication::Run()

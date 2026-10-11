@@ -18,13 +18,20 @@
 
 #include "SettingsWindow.h"
 
+#include <array>
+#include <vector>
+
 #include <QAbstractItemView>
+#include <QBoxLayout>
+#include <QFrame>
 #include <QPainter>
 #include <QLabel>
 #include <QListWidget>
 #include <QStackedWidget>
+#include <QStyle>
 #include <QStyledItemDelegate>
 
+#include "Glyph.h"
 #include "Theme.h"
 #include <QCheckBox>
 #include <QPushButton>
@@ -50,16 +57,7 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override
     {
         if (event->type() == QEvent::Paint) {
-            auto *popup = qobject_cast<QWidget *>(watched);
-            const auto &colors = Theme::Manager::Instance().Colors();
-            QPainter painter{popup};
-            painter.setCompositionMode(QPainter::CompositionMode_Source);
-            painter.fillRect(popup->rect(), Qt::transparent);
-            painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
-            painter.setRenderHint(QPainter::Antialiasing);
-            painter.setPen(colors.popupBorder);
-            painter.setBrush(colors.popupSurface);
-            painter.drawRoundedRect(QRectF{popup->rect()}.adjusted(3, 3, -3, -3), 8, 8);
+            Theme::PaintPopupSurface(qobject_cast<QWidget *>(watched));
             // Consume the private QFrame paint event to avoid a second, native rectangular border.
             return true;
         }
@@ -81,6 +79,69 @@ void ConfigureComboBoxPopup(QComboBox *comboBox)
     view->viewport()->setAutoFillBackground(false);
 }
 
+// Gathers runs of consecutive setting cards of one page into rounded groups, with a hairline
+// between the rows. Each inner list names the cards of one group, top to bottom. The cards are
+// reparented and never recreated, so every `_ui` pointer and connection keeps working.
+void GroupCards(QWidget *page, const std::vector<std::vector<const char *>> &groups)
+{
+    auto *pageLayout = qobject_cast<QBoxLayout *>(page->layout());
+    APD_ASSERT(pageLayout);
+
+    std::vector<QWidget *> restyle;
+
+    for (std::size_t g = 0; g < groups.size(); ++g) {
+        std::vector<QFrame *> cards;
+        for (const char *name : groups[g]) {
+            auto *card = page->findChild<QFrame *>(name);
+            APD_ASSERT(card);
+            cards.push_back(card);
+        }
+        APD_ASSERT(!cards.empty());
+
+        const auto at = pageLayout->indexOf(cards.front());
+        APD_ASSERT(at >= 0);
+
+        auto *group = new QFrame{page};
+        group->setObjectName(QString{"%1Group"}.arg(cards.front()->objectName()));
+        group->setProperty("cssClass", "settingGroup");
+        auto *box = new QVBoxLayout{group};
+        box->setContentsMargins(0, 0, 0, 0);
+        box->setSpacing(0);
+        restyle.push_back(group);
+
+        for (std::size_t i = 0; i < cards.size(); ++i) {
+            auto *card = cards[i];
+            if (i > 0) {
+                auto *separator = new QFrame{group};
+                separator->setProperty("cssClass", "rowSeparator");
+                separator->setFixedHeight(1);
+                box->addWidget(separator);
+                restyle.push_back(separator);
+            }
+            pageLayout->removeWidget(card);
+            card->setParent(group);
+            card->setProperty("cssClass", "settingRow");
+            box->addWidget(card);
+            restyle.push_back(card);
+        }
+
+        pageLayout->insertWidget(at, group);
+        if (g > 0) {
+            // A real widget rather than extra layout spacing keeps the distance between two
+            // groups (spacing + gap + spacing) independent of how the page layout is configured.
+            auto *gap = new QWidget{page};
+            gap->setObjectName("groupGap");
+            gap->setFixedHeight(10);
+            pageLayout->insertWidget(at, gap);
+        }
+    }
+
+    for (auto *widget : restyle) {
+        widget->style()->unpolish(widget);
+        widget->style()->polish(widget);
+    }
+}
+
 } // namespace
 
 SettingsWindow::SettingsWindow(
@@ -96,6 +157,30 @@ SettingsWindow::SettingsWindow(
     APD_ASSERT(debugPageIndex == _ui.pages->count() - 1);
     APD_ASSERT(_ui.navList->item(debugPageIndex)->text() == "Debug");
 
+    // The glyphs paint themselves in the current accent colour, so retranslateUi (which only
+    // touches the texts) leaves them alone and a theme change only needs a repaint.
+    constexpr std::array navGlyphs{
+        Glyph::Kind::General, Glyph::Kind::Visual, Glyph::Kind::Features, Glyph::Kind::About,
+        Glyph::Kind::Debug};
+    APD_ASSERT(_ui.navList->count() == static_cast<int>(navGlyphs.size()));
+    _ui.navList->setIconSize({18, 18});
+    for (std::size_t row = 0; row < navGlyphs.size(); ++row) {
+        _ui.navList->item(static_cast<int>(row))->setIcon(Glyph::Icon(navGlyphs[row]));
+    }
+    connect(
+        &Theme::Manager::Instance(), &Theme::Manager::Changed, _ui.navList->viewport(),
+        qOverload<>(&QWidget::update));
+
+    // Consecutive setting cards share one rounded group; the groups are laid out at the same
+    // positions the standalone cards used to occupy.
+    GroupCards(
+        _ui.general,
+        {{"cardLanguage", "cardAutoRun", "cardReceivingRange"}, {"cardDevice", "cardDiagnostics"}});
+    GroupCards(_ui.visual, {{"cardAppearance"}, {"cardTrayIconBattery", "cardTaskbarBattery"}});
+    GroupCards(
+        _ui.features, {{"cardLowAudioLatency", "cardAutoEarDetection", "cardShowOnConnect"},
+                       {"cardTrayQuickConnect"}});
+
     connect(
         _ui.navList, &QListWidget::currentRowChanged, _ui.pages, &QStackedWidget::setCurrentIndex);
     _ui.navList->setCurrentRow(0);
@@ -110,6 +195,10 @@ SettingsWindow::SettingsWindow(
         label->setBuddy(checkBox);
         checkBox->setAccessibleName(label->text());
     }
+    _ui.lbAutoRun->setBuddy(_ui.cbAutoRun);
+    _ui.cbAutoRun->setAccessibleName(_ui.lbAutoRun->text());
+    _ui.lbReceivingRange->setBuddy(_ui.hsMaxReceivingRange);
+    _ui.hsMaxReceivingRange->setAccessibleName(_ui.lbReceivingRange->text());
 
     // The default combo popup delegate ignores stylesheet item padding; the styled one honours it.
     _ui.cbLanguages->setItemDelegate(new QStyledItemDelegate{_ui.cbLanguages});

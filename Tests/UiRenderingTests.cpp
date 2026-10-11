@@ -1,16 +1,26 @@
 #include <algorithm>
 #include <atomic>
+#include <cmath>
+#include <memory>
 
+#include <QAbstractButton>
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDesktopServices>
 #include <QDir>
+#include <QFile>
 #include <QFontDatabase>
+#include <QFrame>
+#include <QIcon>
+#include <QImage>
 #include <QLabel>
+#include <QLineF>
 #include <QListWidget>
 #include <QRawFont>
 #include <QRadioButton>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QTest>
@@ -19,6 +29,7 @@
 #include <QProgressBar>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QStyleOptionButton>
 #include <QStyleOptionComboBox>
 #include <QThread>
 #include <QUrl>
@@ -26,6 +37,9 @@
 #include <QPainter>
 
 #include "Source/Core/QuickConnect.h"
+#include "Source/Core/Settings.h"
+#include "Source/Core/SettingsRepository.h"
+#include "Source/Gui/Glyph.h"
 #include "Source/Gui/MainWindow.h"
 #include "Source/Gui/SettingsWindow.h"
 #include "Source/Gui/Theme.h"
@@ -124,6 +138,134 @@ struct SimulatedDownload {
         return [this](const auto &info, const auto &progress) { return Run(info, progress); };
     }
 };
+
+// Puts the theme back to the mode it had, even when a QVERIFY leaves the test early.
+class ThemeModeGuard
+{
+public:
+    ThemeModeGuard() : _mode{Gui::Theme::Manager::Instance().CurrentMode()} {}
+
+    ~ThemeModeGuard()
+    {
+        Gui::Theme::Manager::Instance().SetMode(_mode);
+    }
+
+    ThemeModeGuard(const ThemeModeGuard &) = delete;
+    ThemeModeGuard &operator=(const ThemeModeGuard &) = delete;
+
+private:
+    Gui::Theme::Mode _mode;
+};
+
+// Keeps the settings of the test run away from the persistent store of the user: every change a
+// settings window writes lands in memory and is dropped with the scope.
+class MemorySettingsScope
+{
+public:
+    MemorySettingsScope()
+    {
+        Core::Settings::SetRepository(std::make_unique<Core::Settings::MemoryRepository>());
+    }
+
+    ~MemorySettingsScope()
+    {
+        Core::Settings::SetRepository(Core::Settings::CreatePersistentRepository());
+    }
+
+    MemorySettingsScope(const MemorySettingsScope &) = delete;
+    MemorySettingsScope &operator=(const MemorySettingsScope &) = delete;
+};
+
+// Records the stylesheet parser warnings that Qt logs instead of failing. The previous handler
+// keeps receiving every other message, so the test log stays complete.
+class StyleSheetWarningRecorder
+{
+public:
+    StyleSheetWarningRecorder()
+    {
+        Warnings().clear();
+        PreviousHandler() = qInstallMessageHandler(&Handle);
+    }
+
+    ~StyleSheetWarningRecorder()
+    {
+        qInstallMessageHandler(PreviousHandler());
+    }
+
+    StyleSheetWarningRecorder(const StyleSheetWarningRecorder &) = delete;
+    StyleSheetWarningRecorder &operator=(const StyleSheetWarningRecorder &) = delete;
+
+    const QStringList &Recorded() const
+    {
+        return Warnings();
+    }
+
+private:
+    static QStringList &Warnings()
+    {
+        static QStringList warnings;
+        return warnings;
+    }
+
+    static QtMessageHandler &PreviousHandler()
+    {
+        static QtMessageHandler handler = nullptr;
+        return handler;
+    }
+
+    static void Handle(QtMsgType type, const QMessageLogContext &context, const QString &message)
+    {
+        if (message.contains(QStringLiteral("Could not parse"))) {
+            Warnings().push_back(message);
+        }
+        else if (PreviousHandler() != nullptr) {
+            PreviousHandler()(type, context, message);
+        }
+    }
+};
+
+QString CssClass(const QObject *object)
+{
+    return object->property("cssClass").toString();
+}
+
+// WCAG 2.x contrast ratio between two opaque colours, from 1 to 21.
+qreal ContrastRatio(const QColor &a, const QColor &b)
+{
+    const auto linear = [](qreal channel) {
+        return channel <= 0.04045 ? channel / 12.92 : std::pow((channel + 0.055) / 1.055, 2.4);
+    };
+    const auto luminance = [&](const QColor &color) {
+        return 0.2126 * linear(color.redF()) + 0.7152 * linear(color.greenF()) +
+               0.0722 * linear(color.blueF());
+    };
+    const auto first = luminance(a);
+    const auto second = luminance(b);
+    return (std::max(first, second) + 0.05) / (std::min(first, second) + 0.05);
+}
+
+bool HasVisiblePixel(const QImage &image)
+{
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            if (qAlpha(image.pixel(x, y)) != 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+Core::AirPods::State AirPods5State()
+{
+    Core::AirPods::State state;
+    state.model = Core::AirPods::Model::AirPods_5;
+    state.displayName = QStringLiteral("AirPods 5");
+    state.pods.left.battery = 80;
+    state.pods.right.battery = 70;
+    state.caseBox.battery = 50;
+    return state;
+}
 } // namespace
 
 class UiRenderingTests : public QObject
@@ -683,6 +825,8 @@ private Q_SLOTS:
         QCOMPARE(navigation->frameShape(), QFrame::NoFrame);
         QCOMPARE(navigation->focusPolicy(), Qt::StrongFocus);
         QVERIFY(!qApp->styleSheet().contains(QStringLiteral("border-left")));
+        // Qt only logs a parse warning for an unresolved @token, so check for one explicitly.
+        QVERIFY(!qApp->styleSheet().contains(QLatin1Char('@')));
         navigation->setFocus();
         QCOMPARE(QApplication::focusWidget(), navigation);
         QCOMPARE(navigation->currentRow(), 0);
@@ -887,6 +1031,402 @@ private Q_SLOTS:
 
         QCoreApplication::removeTranslator(&second);
         Gui::Theme::ApplyApplicationTypography(QLocale{"en_US"});
+    }
+
+    void StylesheetIsWellFormed()
+    {
+        ThemeModeGuard modeGuard;
+        auto &theme = Gui::Theme::Manager::Instance();
+        const QRegularExpression resourceUrl{R"re(url\((:/[^)]+)\))re"};
+
+        for (const auto mode : {Gui::Theme::Mode::Light, Gui::Theme::Mode::Dark}) {
+            // Installed before the mode change, so it also sees what the theme manager triggers
+            // while it applies the sheet itself.
+            StyleSheetWarningRecorder recorder;
+            theme.SetMode(mode);
+
+            const auto sheet = qApp->styleSheet();
+            QVERIFY(!sheet.isEmpty());
+            QVERIFY2(!sheet.contains(QLatin1Char('@')), "unresolved @token in the stylesheet");
+            QVERIFY(!sheet.contains(QStringLiteral("border-left")));
+
+            // An image that is missing from Resource.qrc is silently skipped by the style.
+            int resourceCount = 0;
+            for (auto matches = resourceUrl.globalMatch(sheet); matches.hasNext();) {
+                const auto resource = matches.next().captured(1);
+                QVERIFY2(QFile::exists(resource), qPrintable(resource));
+                ++resourceCount;
+            }
+            QVERIFY(resourceCount > 0);
+
+            // Applying a sheet drops the parsed rules, and polishing a widget parses them again.
+            qApp->setStyleSheet(sheet);
+            QPushButton probe;
+            probe.ensurePolished();
+            QVERIFY2(
+                recorder.Recorded().isEmpty(),
+                qPrintable(recorder.Recorded().join(QStringLiteral("\n"))));
+        }
+    }
+
+    void MainWindowHeaderButtonsRequestSettings()
+    {
+        Gui::MainWindow window;
+        window.Show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        auto *gear = window.findChild<QAbstractButton *>("settingsButton");
+        auto *close = window.findChild<QAbstractButton *>("closeButton");
+        auto *label = window.findChild<QLabel *>("deviceLabel");
+        QVERIFY(gear != nullptr);
+        QVERIFY(close != nullptr);
+        QVERIFY(label != nullptr);
+
+        // Both buttons sit on the centres of the corner arcs of the 26px card, so they stay
+        // concentric with the corners and clear of the device name.
+        QCOMPARE(gear->geometry(), QRect(12, 12, 28, 28));
+        QCOMPARE(close->geometry(), QRect(280, 12, 28, 28));
+        QVERIFY(!gear->geometry().intersects(label->geometry()));
+        QVERIFY(!close->geometry().intersects(label->geometry()));
+        const auto offsetFrom = [](const QAbstractButton *button, const QPointF &arcCentre) {
+            return QLineF{QRectF{button->geometry()}.center(), arcCentre}.length();
+        };
+        QVERIFY(offsetFrom(gear, QPointF{26, 26}) + 14 <= 26);
+        QVERIFY(offsetFrom(close, QPointF{294, 26}) + 14 <= 26);
+
+        for (const auto *button : {gear, close}) {
+            QVERIFY(!button->toolTip().isEmpty());
+            QVERIFY(!button->accessibleName().isEmpty());
+        }
+
+        QSignalSpy settingsRequested{&window, &Gui::MainWindow::SettingsRequested};
+        QVERIFY(settingsRequested.isValid());
+
+        QTest::mouseClick(gear, Qt::LeftButton, Qt::NoModifier, gear->rect().center());
+        QCOMPARE(settingsRequested.count(), 1);
+
+        // Only the circle reacts: a release outside of it cancels the click, and so does a press
+        // on the corner of the bounding square.
+        QTest::mousePress(gear, Qt::LeftButton, Qt::NoModifier, gear->rect().center());
+        QTest::mouseRelease(gear, Qt::LeftButton, Qt::NoModifier, QPoint{1, 1});
+        QCOMPARE(settingsRequested.count(), 1);
+        QTest::mouseClick(gear, Qt::LeftButton, Qt::NoModifier, QPoint{1, 1});
+        QCOMPARE(settingsRequested.count(), 1);
+
+        gear->setFocus();
+        QTest::keyClick(gear, Qt::Key_Space);
+        QCOMPARE(settingsRequested.count(), 2);
+
+        // The close button only hides the window. The window may be sliding out by now, so its
+        // visibility is deliberately not checked.
+        QTest::mouseClick(close, Qt::LeftButton, Qt::NoModifier, close->rect().center());
+        QCOMPARE(settingsRequested.count(), 2);
+    }
+
+    void MainWindowHeaderRendersInBothThemes()
+    {
+        ThemeModeGuard modeGuard;
+        auto &theme = Gui::Theme::Manager::Instance();
+        const auto state = AirPods5State();
+        const auto outputDir = QStringLiteral(APD_BINARY_DIR "/UiValidation");
+        QVERIFY(QDir{}.mkpath(outputDir));
+
+        for (const auto mode : {Gui::Theme::Mode::Light, Gui::Theme::Mode::Dark}) {
+            theme.SetMode(mode);
+            Gui::MainWindow window;
+            window.UpdateState(state);
+            window.Show();
+            QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+            auto *animation = window.findChild<Gui::Widget::AnimationView *>();
+            QVERIFY(animation != nullptr);
+            QTRY_VERIFY(animation->isVisible());
+            QVERIFY(window.findChild<QAbstractButton *>("settingsButton") != nullptr);
+            QVERIFY(window.findChild<QAbstractButton *>("closeButton") != nullptr);
+
+            const auto image = window.grab();
+            QVERIFY(!image.isNull());
+            const auto fileName =
+                QString{"/main-window-header-%1.png"}.arg(theme.IsDark() ? "dark" : "light");
+            QVERIFY(image.save(outputDir + fileName));
+            window.close();
+        }
+    }
+
+    void GearOpensSettingsThroughTray()
+    {
+        auto backend = std::make_shared<Core::QuickConnect::NullBackend>();
+        Core::QuickConnect::Controller quickConnect{backend};
+        Gui::TrayIcon tray{[] { return 0; }, quickConnect};
+        Gui::MainWindow window;
+        connect(&window, &Gui::MainWindow::SettingsRequested, &tray, &Gui::TrayIcon::ShowSettings);
+        window.Show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        // The tray owns its settings window by value, without a parent, so `findChild` cannot
+        // reach it. Search the top-level windows instead.
+        const auto findSettingsWindow = []() -> QWidget * {
+            for (auto *widget : QApplication::topLevelWidgets()) {
+                if (widget->objectName() == QStringLiteral("SettingsWindow")) {
+                    return widget;
+                }
+            }
+            return nullptr;
+        };
+        QVERIFY(findSettingsWindow() != nullptr);
+        QVERIFY(!findSettingsWindow()->isVisible());
+
+        auto *gear = window.findChild<QAbstractButton *>("settingsButton");
+        QVERIFY(gear != nullptr);
+        QTest::mouseClick(gear, Qt::LeftButton, Qt::NoModifier, gear->rect().center());
+
+        auto *settings = findSettingsWindow();
+        QVERIFY(settings != nullptr);
+        QTRY_VERIFY(settings->isVisible());
+        auto *navigation = settings->findChild<QListWidget *>("navList");
+        QVERIFY(navigation != nullptr);
+        QCOMPARE(navigation->currentRow(), 0);
+
+        // Asking again while the About page is showing returns to the first page, exactly like
+        // the Settings entry of the tray menu.
+        navigation->setCurrentRow(3);
+        QCOMPARE(navigation->currentRow(), 3);
+        tray.ShowSettings();
+        QCOMPARE(navigation->currentRow(), 0);
+
+        settings->hide();
+    }
+
+    void PaletteMeetsContrastTargets_data()
+    {
+        QTest::addColumn<bool>("dark");
+        QTest::newRow("light") << false;
+        QTest::newRow("dark") << true;
+    }
+
+    void PaletteMeetsContrastTargets()
+    {
+        QFETCH(bool, dark);
+        ThemeModeGuard modeGuard;
+        auto &theme = Gui::Theme::Manager::Instance();
+        theme.SetMode(dark ? Gui::Theme::Mode::Dark : Gui::Theme::Mode::Light);
+        QCOMPARE(theme.IsDark(), dark);
+        // A copy, because the manager rebuilds its palette in place when the theme changes.
+        const auto colors = theme.Colors();
+        const QColor white{Qt::white};
+
+        QStringList shortfalls;
+        const auto require = [&](const char *what, const QColor &foreground,
+                                 const QColor &background, qreal minimum) {
+            const auto ratio = ContrastRatio(foreground, background);
+            if (ratio < minimum) {
+                shortfalls.push_back(QStringLiteral("%1: %2 is below %3")
+                                         .arg(
+                                             QString::fromLatin1(what),
+                                             QString::number(ratio, 'f', 2),
+                                             QString::number(minimum, 'f', 1)));
+            }
+        };
+
+        // Body text
+        require("text on windowBackground", colors.text, colors.windowBackground, 7.0);
+        require("text on surface", colors.text, colors.surface, 7.0);
+        require("text on surfaceSecondary", colors.text, colors.surfaceSecondary, 7.0);
+        require(
+            "textSecondary on windowBackground", colors.textSecondary, colors.windowBackground,
+            4.5);
+        require("textSecondary on surface", colors.textSecondary, colors.surface, 4.5);
+        require(
+            "textSecondary on surfaceSecondary", colors.textSecondary, colors.surfaceSecondary,
+            4.5);
+        require("errorText on windowBackground", colors.errorText, colors.windowBackground, 4.5);
+        require("errorText on surface", colors.errorText, colors.surface, 4.5);
+
+        // Filled accent controls: text on the default button, and the white thumb of a switch
+        require("accentText on accent", colors.accentText, colors.accent, 4.5);
+        require("white on accentFill", white, colors.accentFill, 3.0);
+
+        // Sidebar and switch
+        require("text on sidebarSelected", colors.text, colors.sidebarSelected, 7.0);
+        require("switchOff on surface", colors.switchOff, colors.surface, 1.5);
+        require("switchOff against the white thumb", colors.switchOff, white, 1.5);
+
+        // Main window
+        require("mainCloseGlyph on mainCloseBg", colors.mainCloseGlyph, colors.mainCloseBg, 4.0);
+        require("batteryAlarm on mainSurface", colors.batteryAlarm, colors.mainSurface, 3.0);
+
+        QVERIFY2(shortfalls.isEmpty(), qPrintable(shortfalls.join(QStringLiteral("\n"))));
+
+        QVERIFY(colors.accentText == QColor{Qt::black} || colors.accentText == QColor{Qt::white});
+
+        // The selected row has to stand out from the sidebar without turning into a button.
+        const auto selection = ContrastRatio(colors.sidebarSelected, colors.surfaceSecondary);
+        QVERIFY2(selection >= 1.1 && selection <= 1.6, qPrintable(QString::number(selection)));
+
+        // Only the translucent rim has alpha. Stylesheets and surfaces must stay opaque.
+        QCOMPARE(colors.mainSurface.alpha(), 255);
+        QCOMPARE(colors.popupSurface.alpha(), 255);
+        QVERIFY(colors.mainRim.alpha() > 0 && colors.mainRim.alpha() < 255);
+    }
+
+    void GlyphsStayInsideTheirBox()
+    {
+        struct GlyphCase {
+            Gui::Glyph::Kind kind;
+            const char *name;
+        };
+        constexpr GlyphCase glyphs[]{
+            {Gui::Glyph::Kind::Close, "Close"},       {Gui::Glyph::Kind::Gear, "Gear"},
+            {Gui::Glyph::Kind::General, "General"},   {Gui::Glyph::Kind::Visual, "Visual"},
+            {Gui::Glyph::Kind::Features, "Features"}, {Gui::Glyph::Kind::About, "About"},
+            {Gui::Glyph::Kind::Debug, "Debug"},
+        };
+
+        for (const auto &glyph : glyphs) {
+            for (const qreal ratio : {1.0, 1.25, 1.5, 2.0}) {
+                const auto label =
+                    QStringLiteral("%1 at %2x")
+                        .arg(QString::fromLatin1(glyph.name), QString::number(ratio));
+
+                // 48 logical pixels with the 32 pixel box in the middle leave an 8 pixel margin
+                // that has to stay empty, antialiasing included.
+                const int side = qRound(48 * ratio);
+                QImage image{side, side, QImage::Format_ARGB32_Premultiplied};
+                image.setDevicePixelRatio(ratio);
+                image.fill(Qt::transparent);
+                {
+                    QPainter painter{&image};
+                    painter.setRenderHint(QPainter::Antialiasing);
+                    Gui::Glyph::Draw(painter, glyph.kind, QRectF{8, 8, 32, 32}, Qt::black);
+                }
+
+                const int boxStart = qRound(8 * ratio);
+                const int boxEnd = qRound(40 * ratio);
+                int inside = 0;
+                int outside = 0;
+                for (int y = 0; y < image.height(); ++y) {
+                    for (int x = 0; x < image.width(); ++x) {
+                        if (qAlpha(image.pixel(x, y)) == 0) {
+                            continue;
+                        }
+                        if (x >= boxStart && x < boxEnd && y >= boxStart && y < boxEnd) {
+                            ++inside;
+                        }
+                        else {
+                            ++outside;
+                        }
+                    }
+                }
+                QVERIFY2(inside >= 40, qPrintable(label + QStringLiteral(": nothing drawn")));
+                QVERIFY2(
+                    outside == 0,
+                    qPrintable(label + QStringLiteral(": %1 pixels outside").arg(outside)));
+            }
+        }
+    }
+
+    void SwitchBehavesLikeACheckBox()
+    {
+        MemorySettingsScope settings;
+        auto backend = std::make_shared<Core::QuickConnect::NullBackend>();
+        Core::QuickConnect::Controller quickConnect{backend};
+        Gui::SettingsWindow window{[] { return 0; }, quickConnect};
+        window.resize(640, 420);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+
+        // The Features page
+        window.SetTabIndex(2);
+        auto *toggle = window.findChild<QCheckBox *>("cbLowAudioLatency");
+        QVERIFY(toggle != nullptr);
+        QTRY_VERIFY(toggle->isVisible());
+        toggle->ensurePolished();
+
+        // The keyboard works exactly like it does for a plain check box.
+        toggle->setFocus();
+        QTRY_VERIFY(toggle->hasFocus());
+        QSignalSpy toggled{toggle, &QCheckBox::toggled};
+        const bool initiallyChecked = toggle->isChecked();
+        QTest::keyClick(toggle, Qt::Key_Space);
+        QCOMPARE(toggle->isChecked(), !initiallyChecked);
+        QTest::keyClick(toggle, Qt::Key_Space);
+        QCOMPARE(toggle->isChecked(), initiallyChecked);
+        QCOMPARE(toggled.count(), 2);
+
+        // The track is 40x24 and does not change size when it takes the focus.
+        const auto indicatorRect = [toggle] {
+            QStyleOptionButton option;
+            option.initFrom(toggle);
+            return toggle->style()->subElementRect(QStyle::SE_CheckBoxIndicator, &option, toggle);
+        };
+        QStyleOptionButton focusedOption;
+        focusedOption.initFrom(toggle);
+        QVERIFY(focusedOption.state.testFlag(QStyle::State_HasFocus));
+        const auto focused = indicatorRect();
+
+        toggle->clearFocus();
+        QVERIFY(!toggle->hasFocus());
+        const auto unfocused = indicatorRect();
+
+        QCOMPARE(unfocused.size(), QSize(40, 24));
+        QCOMPARE(focused.size(), unfocused.size());
+    }
+
+    void SettingsWindowUsesGroupedRows()
+    {
+        ThemeModeGuard modeGuard;
+        auto backend = std::make_shared<Core::QuickConnect::NullBackend>();
+        Core::QuickConnect::Controller quickConnect{backend};
+        Gui::SettingsWindow window{[] { return 0; }, quickConnect};
+        window.resize(640, 420);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        // General: language + auto run + receiving range, device + diagnostics.
+        // Visual: appearance, tray icon battery + taskbar battery.
+        // Features: low audio latency + ear detection + show on connect, quick connect.
+        int groupCount = 0;
+        for (const auto *frame : window.findChildren<QFrame *>()) {
+            if (CssClass(frame) == QStringLiteral("settingGroup")) {
+                ++groupCount;
+            }
+        }
+        QCOMPARE(groupCount, 6);
+
+        // The pages that use groups no longer hold stand-alone cards. The About page still does.
+        for (const auto *pageName : {"general", "visual", "features"}) {
+            auto *page = window.findChild<QWidget *>(pageName);
+            QVERIFY2(page != nullptr, pageName);
+            for (const auto *frame : page->findChildren<QFrame *>()) {
+                QVERIFY2(
+                    CssClass(frame) != QStringLiteral("settingCard"),
+                    qPrintable(frame->objectName()));
+            }
+        }
+
+        auto *navigation = window.findChild<QListWidget *>("navList");
+        QVERIFY(navigation != nullptr);
+        QCOMPARE(navigation->iconSize(), QSize(18, 18));
+        for (int row = 0; row < 4; ++row) {
+            const auto icon = navigation->item(row)->icon();
+            QVERIFY2(!icon.isNull(), qPrintable(QString::number(row)));
+            QVERIFY2(
+                HasVisiblePixel(icon.pixmap(QSize{18, 18}).toImage()),
+                qPrintable(QString::number(row)));
+        }
+
+        const auto outputDir = QStringLiteral(APD_BINARY_DIR "/UiValidation");
+        QVERIFY(QDir{}.mkpath(outputDir));
+        auto &theme = Gui::Theme::Manager::Instance();
+        for (const auto mode : {Gui::Theme::Mode::Light, Gui::Theme::Mode::Dark}) {
+            theme.SetMode(mode);
+            QCoreApplication::processEvents();
+            const auto fileName =
+                QString{"/settings-grouped-%1.png"}.arg(theme.IsDark() ? "dark" : "light");
+            QVERIFY(window.grab().save(outputDir + fileName));
+        }
     }
 };
 

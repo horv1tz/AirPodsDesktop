@@ -97,6 +97,8 @@ private:
     UTILS_QT_DISABLE_ESC_QUIT(QDialog);
     UTILS_QT_REGISTER_LANGUAGECHANGE(QDialog, [this] {
         _ui.retranslateUi(this);
+        _ui.cbAutoRun->setAccessibleName(_ui.lbAutoRun->text());
+        _ui.hsMaxReceivingRange->setAccessibleName(_ui.lbReceivingRange->text());
         _ui.cbLowAudioLatency->setAccessibleName(_ui.lbLowAudioLatency->text());
         _ui.cbAutoEarDetection->setAccessibleName(_ui.lbAutoEarDetection->text());
         _ui.cbShowOnConnect->setAccessibleName(_ui.lbShowOnConnect->text());

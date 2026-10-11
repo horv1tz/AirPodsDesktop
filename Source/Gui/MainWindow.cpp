@@ -18,13 +18,17 @@
 
 #include "MainWindow.h"
 
+#include <QAbstractButton>
+#include <QCoreApplication>
 #include <QScreen>
 #include <QCursor>
+#include <QFocusEvent>
 #include <QFontMetrics>
+#include <QLineF>
 #include <QPainter>
+#include <QPen>
 #include <QMessageBox>
 #include <QCloseEvent>
-#include <QEnterEvent>
 
 #include <Config.h>
 #include "../Helper.h"
@@ -33,107 +37,89 @@
 #include "../Core/Settings.h"
 #include "UpdateWindow.h"
 #include "SelectWindow.h"
+#include "Glyph.h"
 #include "Theme.h"
 
 using namespace std::chrono_literals;
 
 namespace Gui {
 
-class CloseButton : public QWidget
+// A round header button that draws one of the vector glyphs. It is a real `QAbstractButton`, so it
+// gets the keyboard activation, the accessibility role and the `clicked` signal for free.
+class GlyphButton : public QAbstractButton
 {
     Q_OBJECT
 
 public:
-    CloseButton(QWidget *parent = nullptr)
+    GlyphButton(Glyph::Kind kind, QWidget *parent) : QAbstractButton{parent}, _kind{kind}
     {
-        setFixedSize(25, 25);
+        setFixedSize(28, 28);
+        setFocusPolicy(Qt::TabFocus);
+        setCursor(Qt::PointingHandCursor);
+        setAttribute(Qt::WA_Hover);
     }
-
-Q_SIGNALS:
-    void Clicked();
-
-private:
-    bool _isHovering{false}, _isHoldDown{false};
 
 protected:
+    // Only the circle reacts, not the corners of the bounding square.
+    bool hitButton(const QPoint &p) const override
+    {
+        return QLineF{QRectF{rect()}.center(), QPointF{p}}.length() <= width() / 2.0;
+    }
+
     void paintEvent(QPaintEvent *event) override
     {
+        Q_UNUSED(event);
+
+        const auto &colors = Theme::Manager::Instance().Colors();
+
         QPainter painter{this};
-        painter.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
+        painter.setRenderHint(QPainter::Antialiasing);
 
-        DrawBackground(painter);
-        DrawX(painter);
-    }
-
-    void enterEvent(QEnterEvent *event) override
-    {
-        _isHovering = true;
-        repaint();
-    }
-
-    void leaveEvent(QEvent *event) override
-    {
-        _isHovering = false;
-        repaint();
-    }
-
-    void mousePressEvent(QMouseEvent *event) override
-    {
-        _isHoldDown = true;
-        repaint();
-    }
-
-    void mouseReleaseEvent(QMouseEvent *event) override
-    {
-        _isHoldDown = false;
-        Q_EMIT Clicked();
-        repaint();
-    }
-
-    void DrawBackground(QPainter &painter)
-    {
-        painter.save();
-        {
-            painter.setPen(Qt::NoPen);
-
-            const auto &colors = Theme::Manager::Instance().Colors();
-
-            QColor color;
-            if (_isHoldDown) {
-                color = colors.mainClosePressed;
-            }
-            else if (_isHovering) {
-                color = colors.mainCloseHover;
-            }
-            else {
-                color = colors.mainCloseBg;
-            }
-
-            painter.setBrush(QBrush{color});
-            painter.drawEllipse(rect());
+        painter.setPen(Qt::NoPen);
+        if (isDown()) {
+            painter.setBrush(colors.mainClosePressed);
         }
-        painter.restore();
-    }
+        else if (underMouse()) {
+            painter.setBrush(colors.mainCloseHover);
+        }
+        else {
+            painter.setBrush(colors.mainCloseBg);
+        }
+        painter.drawEllipse(rect());
 
-    void DrawX(QPainter &painter)
-    {
-        painter.save();
-        {
-            painter.setPen(QPen{
-                Theme::Manager::Instance().Colors().mainCloseGlyph, 2.5, Qt::SolidLine,
-                Qt::RoundCap});
+        constexpr qreal glyphSize = 14.0;
+        Glyph::Draw(
+            painter, _kind,
+            QRectF{(width() - glyphSize) / 2.0, (height() - glyphSize) / 2.0, glyphSize, glyphSize},
+            colors.mainCloseGlyph);
+
+        if (hasFocus() && _keyboardFocus) {
+            painter.setPen(QPen{colors.accent, 2.0});
             painter.setBrush(Qt::NoBrush);
-
-            QSize size = this->size();
-
-            constexpr int margin = 8;
-
-            painter.drawLine(margin, margin, size.width() - margin, size.height() - margin);
-
-            painter.drawLine(size.width() - margin, margin, margin, size.height() - margin);
+            painter.drawEllipse(QRectF{rect()}.adjusted(1, 1, -1, -1));
         }
-        painter.restore();
     }
+
+    // The ring is for keyboard navigation only, not for automatic focus on window activation.
+    void focusInEvent(QFocusEvent *event) override
+    {
+        _keyboardFocus = event->reason() == Qt::TabFocusReason ||
+                         event->reason() == Qt::BacktabFocusReason ||
+                         event->reason() == Qt::ShortcutFocusReason;
+        QAbstractButton::focusInEvent(event);
+        update();
+    }
+
+    void focusOutEvent(QFocusEvent *event) override
+    {
+        _keyboardFocus = false;
+        QAbstractButton::focusOutEvent(event);
+        update();
+    }
+
+private:
+    Glyph::Kind _kind;
+    bool _keyboardFocus = false;
 };
 
 //////////////////////////////////////////////////
@@ -145,7 +131,6 @@ MainWindow::MainWindow(QWidget *parent) : QDialog{parent}
 
     _animationView = new Widget::AnimationView{this};
     _playback = new AnimationPlayback{*_animationView, this};
-    _closeButton = new CloseButton{this};
 
     _ui.setupUi(this);
 
@@ -157,6 +142,19 @@ MainWindow::MainWindow(QWidget *parent) : QDialog{parent}
     setAttribute(Qt::WA_TranslucentBackground);
     setAutoFillBackground(false);
     setProperty(Theme::Manager::kSkipDwmProperty, true);
+
+    // Both buttons sit on the card corners, on the centres of the corner arcs. They are created
+    // after `setupUi` and raised, so no sibling can cover them.
+    _settingsButton = new GlyphButton{Glyph::Kind::Gear, this};
+    _settingsButton->setObjectName("settingsButton");
+    _closeButton = new GlyphButton{Glyph::Kind::Close, this};
+    _closeButton->setObjectName("closeButton");
+    _settingsButton->move(_headerInset, _headerInset);
+    _closeButton->move(width() - _headerInset - _closeButton->width(), _headerInset);
+    _settingsButton->raise();
+    _closeButton->raise();
+    setTabOrder(_settingsButton, _closeButton);
+    setTabOrder(_closeButton, _ui.pushButton);
 
     _ui.pushButton->setProperty("cssClass", "accent");
 
@@ -174,7 +172,12 @@ MainWindow::MainWindow(QWidget *parent) : QDialog{parent}
     connect(_ui.pushButton, &QPushButton::clicked, this, &MainWindow::OnButtonClicked);
     connect(&_posAnimation, &QPropertyAnimation::finished, this, &MainWindow::OnPosMoveFinished);
     connect(_animationView, &Widget::AnimationView::Clicked, this, &MainWindow::OnAnimationClicked);
-    connect(_closeButton, &CloseButton::Clicked, this, &MainWindow::DoHide);
+    connect(_closeButton, &QAbstractButton::clicked, this, &MainWindow::DoHide);
+    connect(_settingsButton, &QAbstractButton::clicked, this, [this] {
+        // Settings first, so it is already showing when the always-on-top popup slides away.
+        emit SettingsRequested();
+        DoHide();
+    });
 
     connect(this, &MainWindow::UpdateStateSafely, this, &MainWindow::UpdateState);
     connect(this, &MainWindow::AvailableSafely, this, &MainWindow::Available);
@@ -194,11 +197,12 @@ MainWindow::MainWindow(QWidget *parent) : QDialog{parent}
     _ui.layoutPods->addWidget(_leftBattery);
     _ui.layoutPods->addWidget(_rightBattery);
     _ui.layoutCase->addWidget(_caseBattery);
-    _ui.layoutClose->addWidget(_closeButton);
 
     // For getting the correct initial height of `_animationView` later
     _ui.layoutAnimation->activate();
     _animationView->show();
+
+    ApplyHeaderTexts();
 }
 
 void MainWindow::StartUpdateChecks()
@@ -505,19 +509,51 @@ void MainWindow::ApplyTheme()
         Utils::Qt::SetPaletteColor(battery, QPalette::WindowText, colors.mainText);
     }
 
+    _settingsButton->update();
     _closeButton->update();
     update();
+}
+
+void MainWindow::ApplyHeaderTexts()
+{
+    // Both strings are already translated for the tray menu and the Settings window, so the
+    // header buttons reuse those contexts instead of adding new sources.
+    if (_settingsButton != nullptr) {
+        const auto text = QCoreApplication::translate("Gui::TrayIcon", "Settings");
+        _settingsButton->setToolTip(text);
+        _settingsButton->setAccessibleName(text);
+    }
+    if (_closeButton != nullptr) {
+        const auto text = QCoreApplication::translate("Gui::SettingsWindow", "Close");
+        _closeButton->setToolTip(text);
+        _closeButton->setAccessibleName(text);
+    }
 }
 
 void MainWindow::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
 
+    const auto &colors = Theme::Manager::Instance().Colors();
+    // One device pixel, so the rim stays a crisp hairline at every scale factor.
+    const qreal px = 1.0 / devicePixelRatioF();
+    const QRectF card{rect()};
+
     QPainter painter{this};
     painter.setRenderHint(QPainter::Antialiasing);
+
+    // The card itself is opaque, which keeps the corner pixels near the edge fully covered.
     painter.setPen(Qt::NoPen);
-    painter.setBrush(Theme::Manager::Instance().Colors().mainSurface);
-    painter.drawRoundedRect(QRectF{rect()}, _windowCornerRadius, _windowCornerRadius);
+    painter.setBrush(colors.mainSurface);
+    painter.drawRoundedRect(card, _windowCornerRadius, _windowCornerRadius);
+
+    // The translucent rim takes the place of a window shadow. The stroke is centred half a pixel
+    // inside the edge, so it covers exactly the outermost device pixel.
+    painter.setPen(QPen{colors.mainRim, px});
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(
+        card.adjusted(px / 2, px / 2, -px / 2, -px / 2), _windowCornerRadius - px / 2,
+        _windowCornerRadius - px / 2);
 }
 
 void MainWindow::FitDeviceLabelFont(const QString &text)

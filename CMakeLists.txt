@@ -358,6 +358,7 @@ set(
     "Source/Gui/Widget/Battery.cpp"
     "Source/Gui/Widget/AnimationView.cpp"
     "Source/Gui/Theme.cpp"
+    "Source/Gui/Glyph.cpp"
 )
 
 set(APD_APP_CODE_FILES
